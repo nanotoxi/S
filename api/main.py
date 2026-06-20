@@ -157,87 +157,172 @@ async def admin_signups():
             return "—"
         return dt.strftime("%d %b %Y, %H:%M UTC")
 
-    def badge(text, color):
-        return (
-            f'<span style="background:{color}22;color:{color};border:1px solid {color}44;'
-            f'padding:2px 10px;border-radius:20px;font-size:11px;white-space:nowrap">{text}</span>'
-        )
+    def chip(text, color="#4f46e5"):
+        return (f'<span style="background:{color}18;color:{color};border:1px solid {color}33;'
+                f'padding:3px 10px;border-radius:20px;font-size:11px;white-space:nowrap;'
+                f'display:inline-block;margin:2px 3px 2px 0">{text}</span>')
 
-    candidates = await db.fetch("""
-        SELECT c.id, c.user_id, c.profile_complete, c.created_at,
-               LEFT(c.resume_raw, 160) AS preview, c.resume_structured
-        FROM candidates c ORDER BY c.created_at DESC
-    """)
-    employers = await db.fetch(
-        "SELECT id, user_id, company_name, created_at FROM employers ORDER BY created_at DESC"
+    candidates = await db.fetch(
+        "SELECT profile_complete, resume_structured, created_at FROM candidates ORDER BY created_at DESC"
     )
     jds = await db.fetch("""
-        SELECT j.id, j.title, j.status, LEFT(j.full_jd, 220) AS preview,
-               j.created_at, e.company_name
+        SELECT j.title, j.status, j.full_jd, j.structured_jd, j.created_at, e.company_name
         FROM job_descriptions j
         LEFT JOIN employers e ON e.id = j.employer_id
         ORDER BY j.created_at DESC
     """)
-    users = await db.fetch(
-        "SELECT id, user_type, created_at FROM users ORDER BY created_at DESC"
-    )
 
-    def candidates_rows():
-        rows = ""
+    # ── Candidate cards ──────────────────────────────────────────────
+    def candidate_cards():
+        if not candidates:
+            return '<p style="color:#334155;padding:24px">No candidates yet.</p>'
+        cards = ""
         for c in candidates:
-            name = "—"
             try:
                 rs = c["resume_structured"]
                 if isinstance(rs, str):
                     rs = json.loads(rs)
-                if rs:
-                    name = rs.get("name") or rs.get("full_name") or "—"
             except Exception:
-                pass
-            preview = (c["preview"] or "").replace("<", "&lt;").replace(">", "&gt;")
-            status_badge = badge("Complete", "#22c55e") if c["profile_complete"] else badge("Incomplete", "#ef4444")
-            rows += f"""<tr>
-              <td style="font-weight:600">{name}</td>
-              <td>{status_badge}</td>
-              <td style="color:#64748b;font-size:12px;max-width:320px;overflow:hidden;
-                  white-space:nowrap;text-overflow:ellipsis">{preview}</td>
-              <td style="color:#94a3b8;font-size:12px;white-space:nowrap">{fmt(c["created_at"])}</td>
-            </tr>"""
-        return rows or '<tr><td colspan="4" class="empty">No candidates yet.</td></tr>'
+                rs = {}
+            rs = rs or {}
+            personal   = rs.get("personal", {})
+            name       = personal.get("name", "Unknown")
+            email      = personal.get("email", "")
+            phone      = personal.get("phone", "")
+            location   = personal.get("location", "")
+            summary    = rs.get("summary", "") or ""
+            skills_obj = rs.get("skills", {})
+            tech       = skills_obj.get("technical", []) if isinstance(skills_obj, dict) else []
+            soft       = skills_obj.get("soft", []) if isinstance(skills_obj, dict) else []
+            education  = rs.get("education", []) or []
+            projects   = rs.get("projects", []) or []
+            social     = rs.get("social", {}) or {}
+            initials   = "".join(w[0] for w in name.split()[:2]).upper() or "?"
+            status_col = "#22c55e" if c["profile_complete"] else "#f59e0b"
+            status_txt = "Profile Complete" if c["profile_complete"] else "Incomplete"
 
-    def employers_rows():
-        rows = ""
-        for e in employers:
-            rows += f"""<tr>
-              <td style="font-weight:600">{e["company_name"] or "—"}</td>
-              <td style="color:#94a3b8;font-size:12px;white-space:nowrap">{fmt(e["created_at"])}</td>
-            </tr>"""
-        return rows or '<tr><td colspan="2" class="empty">No employers yet.</td></tr>'
+            # skills chips
+            tech_chips = "".join(chip(s, "#6366f1") for s in tech) or '<span style="color:#334155">—</span>'
+            soft_chips = "".join(chip(s, "#0ea5e9") for s in soft) if soft else ""
 
-    def jds_rows():
-        rows = ""
+            # education rows
+            edu_rows = ""
+            for e in education:
+                edu_rows += f"""<div style="margin-bottom:6px">
+                  <span style="font-weight:500;color:#e2e8f0">{e.get('degree','')}</span>
+                  <span style="color:#64748b"> · {e.get('institution','')} · {e.get('year','')}
+                  {(' · ' + e.get('grade','')) if e.get('grade') else ''}</span>
+                </div>"""
+
+            # project rows
+            proj_rows = ""
+            for p in projects[:4]:
+                t = "".join(chip(x, "#7c3aed") for x in (p.get("tech_stack") or []))
+                proj_rows += f"""<div style="margin-bottom:10px">
+                  <span style="font-weight:600;color:#e2e8f0">{p.get('name','')}</span>
+                  <span style="color:#64748b;font-size:12px"> — {p.get('description','')}</span>
+                  <div style="margin-top:4px">{t}</div>
+                </div>"""
+
+            # social links
+            socials = ""
+            for key, label, color in [("linkedin","LinkedIn","#0a66c2"),("github","GitHub","#e2e8f0"),("portfolio","Portfolio","#4f46e5")]:
+                val = social.get(key, "")
+                if val and val.lower() not in ("not provided", ""):
+                    socials += f'<a href="{val}" target="_blank" style="color:{color};font-size:12px;margin-right:12px;text-decoration:none">🔗 {label}</a>'
+
+            summary_html = f'<p style="color:#94a3b8;font-size:13px;line-height:1.6;margin-bottom:16px">{summary}</p>' if summary and summary.lower() != "not provided" else ""
+
+            cards += f"""
+<div style="background:#161b27;border:1px solid #1e2535;border-radius:16px;padding:24px;margin-bottom:20px">
+  <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:18px">
+    <div style="width:52px;height:52px;border-radius:50%;background:#4f46e5;display:flex;
+        align-items:center;justify-content:center;font-size:18px;font-weight:700;
+        color:#fff;flex-shrink:0">{initials}</div>
+    <div style="flex:1">
+      <div style="font-size:18px;font-weight:700;color:#e2e8f0">{name}</div>
+      <div style="color:#64748b;font-size:13px;margin-top:3px">
+        {('📧 ' + email + ' &nbsp;') if email else ''}
+        {('📱 ' + phone + ' &nbsp;') if phone else ''}
+        {('📍 ' + location) if location else ''}
+      </div>
+      {socials}
+    </div>
+    <div style="text-align:right;flex-shrink:0">
+      <span style="background:{status_col}18;color:{status_col};border:1px solid {status_col}33;
+          padding:3px 10px;border-radius:20px;font-size:11px">{status_txt}</span>
+      <div style="color:#64748b;font-size:11px;margin-top:6px">{fmt(c['created_at'])}</div>
+    </div>
+  </div>
+
+  {summary_html}
+
+  <div style="margin-bottom:16px">
+    <div style="font-size:11px;font-weight:600;color:#64748b;letter-spacing:.06em;
+        text-transform:uppercase;margin-bottom:8px">Technical Skills</div>
+    <div>{tech_chips}</div>
+    {('<div style="margin-top:6px">' + soft_chips + '</div>') if soft_chips else ''}
+  </div>
+
+  {('<div style="margin-bottom:16px"><div style="font-size:11px;font-weight:600;color:#64748b;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">Education</div>' + edu_rows + '</div>') if edu_rows else ''}
+
+  {('<div><div style="font-size:11px;font-weight:600;color:#64748b;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">Projects</div>' + proj_rows + '</div>') if proj_rows else ''}
+</div>"""
+        return cards
+
+    # ── JD cards ─────────────────────────────────────────────────────
+    def jd_cards():
+        if not jds:
+            return '<p style="color:#334155;padding:24px">No job descriptions yet.</p>'
+        cards = ""
         for j in jds:
-            preview = (j["preview"] or "").replace("<", "&lt;").replace(">", "&gt;")
-            rows += f"""<tr>
-              <td style="font-weight:600">{j["title"]}</td>
-              <td style="color:#818cf8">{j["company_name"] or "—"}</td>
-              <td>{badge(j["status"], "#22c55e")}</td>
-              <td style="color:#64748b;font-size:12px;max-width:340px;overflow:hidden;
-                  white-space:nowrap;text-overflow:ellipsis">{preview}</td>
-              <td style="color:#94a3b8;font-size:12px;white-space:nowrap">{fmt(j["created_at"])}</td>
-            </tr>"""
-        return rows or '<tr><td colspan="5" class="empty">No job descriptions yet.</td></tr>'
+            try:
+                sj = j["structured_jd"]
+                if isinstance(sj, str):
+                    sj = json.loads(sj)
+            except Exception:
+                sj = {}
+            sj = sj or {}
+            title       = j["title"] or sj.get("title", "Untitled")
+            company     = j["company_name"] or sj.get("company_name", "—")
+            emp_type    = sj.get("employment_type", "")
+            location    = sj.get("location", "")
+            experience  = sj.get("experience", "")
+            skills      = sj.get("skills", []) or []
+            resp        = sj.get("responsibilities", []) or []
+            full_jd     = (j["full_jd"] or "").replace("<", "&lt;").replace(">", "&gt;")
 
-    def users_rows():
-        rows = ""
-        for u in users:
-            color = "#4f46e5" if u["user_type"] == "employer" else "#22c55e"
-            rows += f"""<tr>
-              <td style="font-family:monospace;color:#64748b;font-size:11px">{u["id"]}</td>
-              <td>{badge(u["user_type"], color)}</td>
-              <td style="color:#94a3b8;font-size:12px;white-space:nowrap">{fmt(u["created_at"])}</td>
-            </tr>"""
-        return rows or '<tr><td colspan="3" class="empty">No users yet.</td></tr>'
+            skill_chips = "".join(chip(s, "#6366f1") for s in skills)
+            resp_items  = "".join(f'<li style="color:#94a3b8;font-size:13px;margin-bottom:4px">{r}</li>' for r in resp)
+            meta_parts  = " &nbsp;·&nbsp; ".join(x for x in [emp_type, location, experience] if x)
+
+            cards += f"""
+<div style="background:#161b27;border:1px solid #1e2535;border-radius:16px;padding:24px;margin-bottom:20px">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px">
+    <div>
+      <div style="font-size:18px;font-weight:700;color:#e2e8f0">{title}</div>
+      <div style="color:#818cf8;font-size:14px;font-weight:500;margin-top:4px">{company}</div>
+      <div style="color:#64748b;font-size:12px;margin-top:4px">{meta_parts}</div>
+    </div>
+    <div style="text-align:right;flex-shrink:0">
+      <span style="background:#22c55e18;color:#22c55e;border:1px solid #22c55e33;
+          padding:3px 10px;border-radius:20px;font-size:11px">{j['status']}</span>
+      <div style="color:#64748b;font-size:11px;margin-top:6px">{fmt(j['created_at'])}</div>
+    </div>
+  </div>
+
+  {('<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:600;color:#64748b;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">Skills Required</div><div>' + skill_chips + '</div></div>') if skill_chips else ''}
+
+  {('<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:600;color:#64748b;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">Responsibilities</div><ul style="padding-left:18px">' + resp_items + '</ul></div>') if resp_items else ''}
+
+  <details style="margin-top:8px">
+    <summary style="color:#4f46e5;font-size:12px;cursor:pointer;list-style:none">▶ View full JD</summary>
+    <pre style="margin-top:12px;background:#0f1117;border:1px solid #1e2535;border-radius:8px;
+        padding:14px;font-size:12px;color:#94a3b8;white-space:pre-wrap;
+        font-family:inherit;line-height:1.6">{full_jd}</pre>
+  </details>
+</div>"""
+        return cards
 
     generated_at = datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M UTC")
 
@@ -246,67 +331,38 @@ async def admin_signups():
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sath Bot — Signup Report</title>
+<title>Sath Bot — Signups</title>
 <style>
   *{{box-sizing:border-box;margin:0;padding:0}}
-  body{{background:#0f1117;color:#e2e8f0;font-family:Inter,system-ui,sans-serif;padding:32px 28px}}
+  body{{background:#0f1117;color:#e2e8f0;font-family:Inter,system-ui,sans-serif;padding:32px 28px;max-width:900px;margin:0 auto}}
   h1{{font-size:22px;font-weight:700;margin-bottom:4px}}
   .sub{{color:#64748b;font-size:13px;margin-bottom:32px}}
   .stats{{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:36px}}
   .stat{{background:#161b27;border:1px solid #1e2535;border-radius:12px;padding:16px 24px;min-width:130px}}
   .stat .num{{font-size:32px;font-weight:700;color:#818cf8}}
   .stat .lbl{{font-size:12px;color:#64748b;margin-top:4px}}
-  h2{{font-size:13px;font-weight:600;margin-bottom:12px;color:#64748b;letter-spacing:.06em;text-transform:uppercase}}
-  .section{{margin-bottom:40px}}
-  table{{width:100%;border-collapse:collapse;background:#161b27;border:1px solid #1e2535;border-radius:10px;overflow:hidden}}
-  th{{background:#1e2535;color:#64748b;font-size:11px;font-weight:600;text-align:left;
-      padding:10px 16px;letter-spacing:.06em;text-transform:uppercase}}
-  td{{padding:11px 16px;border-top:1px solid #1e253566;font-size:13px;vertical-align:middle}}
-  tr:hover td{{background:#1a2030}}
-  .empty{{color:#334155;font-size:13px}}
+  h2{{font-size:13px;font-weight:600;margin-bottom:16px;color:#64748b;letter-spacing:.06em;text-transform:uppercase}}
+  .section{{margin-bottom:48px}}
+  details summary::-webkit-details-marker{{display:none}}
 </style>
 </head>
 <body>
 <h1>🤖 Sath Bot — Signup Activity</h1>
-<p class="sub">Live from Railway DB &nbsp;·&nbsp; {generated_at}</p>
+<p class="sub">Live · Railway DB · {generated_at}</p>
 
 <div class="stats">
-  <div class="stat"><div class="num">{len(users)}</div><div class="lbl">Total Sessions</div></div>
   <div class="stat"><div class="num">{len(candidates)}</div><div class="lbl">Candidates</div></div>
-  <div class="stat"><div class="num">{len(employers)}</div><div class="lbl">Employers</div></div>
-  <div class="stat"><div class="num">{len(jds)}</div><div class="lbl">JDs Posted</div></div>
+  <div class="stat"><div class="num">{len(jds)}</div><div class="lbl">Job Postings</div></div>
 </div>
 
 <div class="section">
-  <h2>Candidates who signed up</h2>
-  <table>
-    <thead><tr><th>Name</th><th>Profile</th><th>Resume Preview</th><th>Signed Up</th></tr></thead>
-    <tbody>{candidates_rows()}</tbody>
-  </table>
-</div>
-
-<div class="section">
-  <h2>Companies / Employers</h2>
-  <table>
-    <thead><tr><th>Company</th><th>Signed Up</th></tr></thead>
-    <tbody>{employers_rows()}</tbody>
-  </table>
+  <h2>Candidates</h2>
+  {candidate_cards()}
 </div>
 
 <div class="section">
   <h2>Job Descriptions Posted</h2>
-  <table>
-    <thead><tr><th>Role</th><th>Company</th><th>Status</th><th>JD Preview</th><th>Posted</th></tr></thead>
-    <tbody>{jds_rows()}</tbody>
-  </table>
-</div>
-
-<div class="section">
-  <h2>All User Sessions</h2>
-  <table>
-    <thead><tr><th>Session ID</th><th>Type</th><th>Registered</th></tr></thead>
-    <tbody>{users_rows()}</tbody>
-  </table>
+  {jd_cards()}
 </div>
 </body></html>"""
     return HTMLResponse(content=html)
