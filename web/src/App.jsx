@@ -1,13 +1,16 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useChat } from "./hooks/useChat";
 import MessageBubble from "./components/MessageBubble";
 import OptionButtons from "./components/OptionButtons";
 import MultiSelect from "./components/MultiSelect";
 import TypingIndicator from "./components/TypingIndicator";
 import InputBar from "./components/InputBar";
+import LandingPage from "./components/LandingPage";
+import EmployerResults from "./components/EmployerResults";
+import CandidateResults from "./components/CandidateResults";
 
-export default function App() {
-  const { messages, status, isTyping, send, uploadFile } = useChat();
+function ChatView({ role, onDone }) {
+  const { messages, status, isTyping, send, uploadFile } = useChat(role);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -15,15 +18,18 @@ export default function App() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
-  // Restore focus after bot responds
   useEffect(() => {
     if (!isTyping && status === "connected") {
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isTyping, messages.length, status]);
 
-  // Index of the last bot message that has interactive elements (options / multi_select)
-  // — only the most recent one stays active
+  useEffect(() => {
+    if (status === "done") {
+      setTimeout(onDone, 1200);
+    }
+  }, [status, onDone]);
+
   const lastInteractiveIdx = (() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
@@ -50,8 +56,7 @@ export default function App() {
 
   const handleMultiSelectDone = (jsonStr) => {
     const items = JSON.parse(jsonStr);
-    const display = items.join(", ");
-    send({ type: "multi_select_done", value: jsonStr, content: display });
+    send({ type: "multi_select_done", value: jsonStr, content: items.join(", ") });
     setTimeout(() => inputRef.current?.focus(), 50);
   };
 
@@ -73,11 +78,10 @@ export default function App() {
         gap: 10,
       }}>
         <div style={{
-          width: 36, height: 36, borderRadius: "50%", background: "#4f46e5",
+          width: 36, height: 36, borderRadius: "50%",
+          background: role === "candidate" ? "#7c3aed" : "#4f46e5",
           display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
-        }}>
-          🤖
-        </div>
+        }}>🤖</div>
         <div>
           <div style={{ fontWeight: 600, fontSize: 15 }}>Sath Bot</div>
           <div style={{
@@ -86,7 +90,7 @@ export default function App() {
           }}>
             {status === "connecting" ? "Connecting..."
               : status === "connected" ? "Online"
-              : status === "done" ? "Session complete"
+              : status === "done" ? "Preparing your results..."
               : status === "error" ? "Connection error"
               : ""}
           </div>
@@ -108,7 +112,6 @@ export default function App() {
               </div>
             );
           }
-
           if (msg.from === "bot" && msg.type === "multi_select") {
             return (
               <div key={msg.id}>
@@ -122,15 +125,12 @@ export default function App() {
               </div>
             );
           }
-
           if (msg.from === "bot" && (msg.type === "bot_message" || msg.type === "file_request")) {
             return <MessageBubble key={msg.id} message={{ ...msg, type: "bot_message" }} />;
           }
-
           if (msg.from === "user") {
             return <MessageBubble key={msg.id} message={msg} />;
           }
-
           return null;
         })}
 
@@ -138,10 +138,9 @@ export default function App() {
 
         {status === "done" && (
           <div style={{ textAlign: "center", color: "#64748b", fontSize: 13, margin: "16px 0" }}>
-            Session complete. Refresh to start a new one.
+            Loading your results...
           </div>
         )}
-
         {status === "error" && (
           <div style={{ textAlign: "center", color: "#ef4444", fontSize: 13, margin: "16px 0" }}>
             Connection error. Please refresh and try again.
@@ -151,7 +150,6 @@ export default function App() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
       <InputBar
         inputRef={inputRef}
         onSend={send}
@@ -161,4 +159,45 @@ export default function App() {
       />
     </div>
   );
+}
+
+export default function App() {
+  const [view, setView] = useState("landing"); // "landing" | "chat" | "results"
+  const [role, setRole] = useState(null);
+
+  const handleRoleSelect = (selectedRole) => {
+    setRole(selectedRole);
+    setView("chat");
+  };
+
+  const handleChatDone = () => setView("results");
+
+  const handleReset = () => {
+    setRole(null);
+    setView("landing");
+  };
+
+  if (view === "landing") {
+    return <LandingPage onSelect={handleRoleSelect} />;
+  }
+
+  if (view === "chat") {
+    return (
+      <div style={{
+        width: "100%", height: "100dvh",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        background: "#0f1117",
+      }}>
+        <ChatView role={role} onDone={handleChatDone} />
+      </div>
+    );
+  }
+
+  if (view === "results") {
+    return role === "employer"
+      ? <EmployerResults onReset={handleReset} />
+      : <CandidateResults onReset={handleReset} />;
+  }
+
+  return null;
 }

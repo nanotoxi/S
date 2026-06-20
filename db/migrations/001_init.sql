@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS job_descriptions (
 -- Candidates
 CREATE TABLE IF NOT EXISTS candidates (
     id SERIAL PRIMARY KEY,
-    user_id BIGINT REFERENCES users(id),
+    user_id BIGINT UNIQUE REFERENCES users(id),
     resume_raw TEXT,
     resume_structured JSONB,  -- full schema
     embedding VECTOR(384),
@@ -83,3 +83,6 @@ CREATE TABLE IF NOT EXISTS notifications (
     sent BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Ensure unique constraint on candidates.user_id (handles DBs created before UNIQUE was in schema)
+CREATE UNIQUE INDEX IF NOT EXISTS candidates_user_id_unique ON candidates(user_id);
