@@ -344,11 +344,28 @@ async def admin_signups():
   h2{{font-size:13px;font-weight:600;margin-bottom:16px;color:#64748b;letter-spacing:.06em;text-transform:uppercase}}
   .section{{margin-bottom:48px}}
   details summary::-webkit-details-marker{{display:none}}
+  .refresh-bar{{display:flex;align-items:center;gap:10px;margin-bottom:32px;color:#64748b;font-size:12px}}
+  .refresh-bar button{{background:#1e2535;border:1px solid #2d3748;color:#818cf8;padding:4px 14px;border-radius:8px;font-size:12px;cursor:pointer}}
+  .refresh-bar button:hover{{background:#2d3748}}
 </style>
+<script>
+  let secs = 30;
+  function tick(){{
+    const el = document.getElementById('countdown');
+    if(el) el.textContent = secs + 's';
+    if(secs-- <= 0) location.reload();
+    else setTimeout(tick, 1000);
+  }}
+  window.onload = tick;
+</script>
 </head>
 <body>
 <h1>🤖 Sath Bot — Signup Activity</h1>
 <p class="sub">Live · Railway DB · {generated_at}</p>
+<div class="refresh-bar">
+  Auto-refreshes in <strong id="countdown">30s</strong>
+  <button onclick="location.reload()">↺ Refresh now</button>
+</div>
 
 <div class="stats">
   <div class="stat"><div class="num">{len(candidates)}</div><div class="lbl">Candidates</div></div>
